@@ -1,19 +1,17 @@
-from sclib import SoundcloudAPI, Track
+import requests
+import config
 
-# --- MUDANÇA PRINCIPAL AQUI ---
-# Dividimos a lista para tratar cada caso com a ferramenta certa.
+
 LISTA_DE_ARTISTAS = [
-    "elinasounds",  # Nome de usuário da E.Lina no SoundCloud
-    "parsec-music-official",  # Nome de usuário do Parsec
-    "crihan"  # Nome de usuário do Crihan
+    "elinaelian",
+    "parsec_dj",
+    "olga-korol",
+    "cristi-cons",
 ]
-# LISTA_DE_KEYWORDS = ["minimal", "romania", "microhouse"] # Vamos tratar depois
 
 DURACAO_MINIMA_MS = 30 * 60 * 1000
 
-
 def formatar_duracao(ms):
-    """Função auxiliar para converter a duração de milissegundos."""
     if not ms: return "N/A"
     segundos_totais = int(ms / 1000)
     horas = segundos_totais // 3600
@@ -23,55 +21,72 @@ def formatar_duracao(ms):
         return f"{horas:02d}:{minutos:02d}:{segundos:02d}"
     return f"{minutos:02d}:{segundos:02d}"
 
+def buscar_sets_direto_api():
+    print("🤖 Iniciando o Set Hunter (v.Final - API Direta)...")
 
-def buscar_sets_por_artista():
-    """
-    Busca os sets mais recentes dos artistas especificados.
-    """
-    print("🤖 Iniciando o Set Hunter Bot (v4.0 - Artist Fetcher)...")
+    client_id = config.CLIENT_ID
+    headers = {'User-Agent': 'Mozilla/5.0'}
 
-    api = SoundcloudAPI()
-
-    for nome_artista in LISTA_DE_ARTISTAS:
-        print(f"\n🔎 Procurando sets do artista: '{nome_artista}'")
+    for username in LISTA_DE_ARTISTAS:
+        print(f"\n🔎 Processando o artista: '{username}'")
         try:
-            # --- MUDANÇA PRINCIPAL AQUI ---
-            # Usamos .resolve() para encontrar o artista pelo seu nome de usuário
-            artista = api.resolve(f"https://soundcloud.com/{nome_artista}")
+            # --- PASSO 1: Descobrir o ID do utilizador a partir do nome ---
+            print("   - Resolvendo ID do artista...")
+            resolve_url = f"https://api-v2.soundcloud.com/resolve?url=https://soundcloud.com/{username}&client_id={client_id}"
+            response = requests.get(resolve_url, headers=headers)
+            response.raise_for_status()
 
-            if not artista:
-                print(f"   -> Artista '{nome_artista}' não encontrado.")
+            user_data = response.json()
+            user_id = user_data.get('id')
+
+            if not user_id:
+                print(f"   -> Não foi possível encontrar o ID para o artista '{username}'.")
                 continue
 
-            # Pegamos todas as faixas do artista
-            todas_as_faixas = artista.get_tracks()
+            print(f"   - ID encontrado: {user_id}")
 
+            print("   - Buscando faixas do artista...")
+            tracks_url = f"https://api-v2.soundcloud.com/users/{user_id}/tracks?limit=200&client_id={client_id}"
+            response = requests.get(tracks_url, headers=headers)
+            response.raise_for_status()
+
+            tracks_data = response.json()
+            collection = tracks_data.get('collection', [])
+
+            if not collection:
+                print(f"   -> Nenhuma faixa encontrada para '{username}'.")
+                continue
+
+            # --- PASSO 3: Filtrar as faixas para encontrar os sets ---
+            print(f"   - {len(collection)} faixas encontradas. Filtrando por duração...")
             sets_encontrados = []
-            for track in todas_as_faixas:
-                # Verificamos a duração para encontrar os sets
-                if track.duration and track.duration >= DURACAO_MINIMA_MS:
+            for track in collection:
+                if track.get('duration', 0) >= DURACAO_MINIMA_MS:
                     sets_encontrados.append(track)
-
-                # Paramos quando encontrarmos os 5 sets mais recentes
                 if len(sets_encontrados) >= 5:
                     break
 
             if not sets_encontrados:
-                print(f"   -> Nenhum set longo encontrado para '{nome_artista}'.")
+                print(f"   -> Nenhum set longo encontrado para '{username}'.")
                 continue
 
-            print(f"   -> Sets recentes de '{nome_artista}':")
+            # --- PASSO 4: Imprimir os resultados ---
+            print(f"   -> Sets recentes de '{username}':")
             for set_track in sets_encontrados:
-                print(f"   🎵 Título: {set_track.title}")
-                print(f"      - Duração: {formatar_duracao(set_track.duration)}")
-                print(f"      - Link: {set_track.permalink_url}")
+                print(f"   🎵 Título: {set_track.get('title')}")
+                print(f"      - Duração: {formatar_duracao(set_track.get('duration'))}")
+                print(f"      - Link: {set_track.get('permalink_url')}")
 
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                print(f"   ❌ Erro: Artista '{username}' não encontrado (404). Verifique o nome de utilizador.")
+            else:
+                print(f"   ❌ Erro de HTTP ao processar '{username}': {e}")
         except Exception as e:
-            print(f"   ❌ Ocorreu um erro inesperado ao buscar por '{nome_artista}': {e}")
+            print(f"   ❌ Ocorreu um erro inesperado ao processar '{username}': {e}")
 
-    print("\n✅ Busca por artistas finalizada.")
+    print("\n✅ Bot finalizado.")
 
 
 if __name__ == "__main__":
-    buscar_sets_por_artista()
-    print("\nℹ️ A busca por keywords como 'minimal' será implementada a seguir.")
+    buscar_sets_direto_api()
